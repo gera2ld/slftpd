@@ -8,7 +8,7 @@ if __name__=='__main__':
 	logging.info('FTP Server v2 - by Gerald')
 	loop=asyncio.get_event_loop()
 	# TODO: add config file
-	conf=ftpd.FTPHandler.conf=ftpconf.FTPConfig(loop)
+	conf=ftpd.FTPHandler.conf=ftpconf.FTPConfig()
 	conf.add_user(ftpconf.FTPUser(
 		perm='elrw',
 		loginmsg='User ANONYMOUS okay, use email as password.',

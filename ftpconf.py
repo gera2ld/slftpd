@@ -43,8 +43,7 @@ class FTPUser:
 
 class FTPConfig:
 	encoding='utf-8'
-	def __init__(self, loop, host='0.0.0.0', port=21):
-		self.loop=loop
+	def __init__(self, host='0.0.0.0', port=21):
 		self.host=host
 		self.port=port
 		self.users={}
