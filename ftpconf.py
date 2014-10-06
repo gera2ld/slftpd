@@ -17,12 +17,15 @@ class FTPUser:
 	'''
 	def __init__(self,name='anonymous',pwd=None,
 			homedir=os.path.expanduser('~'),
-			perm='elr',loginmsg=None):
+			perm='elr',loginmsg=None,
+			max_down=0,max_up=0):
 		self.name=name
 		self.pwd=pwd
 		self.homedir=os.path.normpath(homedir)
 		self.perm=perm
 		self.loginmsg=loginmsg
+		self.max_down=max_down*1024
+		self.max_up=max_up*1024
 		self.alias=[]
 		self.add_alias('/',self.homedir)
 	def add_alias(self, src, dest, perm=None):
@@ -43,6 +46,7 @@ class FTPUser:
 
 class FTPConfig:
 	encoding='utf-8'
+	buf_in=buf_out=0x1000
 	def __init__(self, host='0.0.0.0', port=21):
 		self.host=host
 		self.port=port
@@ -62,10 +66,10 @@ class FTPConfig:
 			self.ports.put_nowait(i)
 
 class FileProducer:
-	bufsize=0x1000
-	def __init__(self, path, type, offset=0):
+	def __init__(self, path, type, bufsize, offset=0):
 		mode='r'
 		if type=='i': mode+='b'
+		self.bufsize=bufsize
 		self.fp=open(path,mode)
 		if offset: self.fp.seek(offset)
 	def __iter__(self):

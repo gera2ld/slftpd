@@ -10,8 +10,10 @@ if __name__=='__main__':
 	# TODO: add config file
 	conf=ftpd.FTPHandler.conf=ftpconf.FTPConfig()
 	conf.add_user(ftpconf.FTPUser(
-		perm='elrw',
+		perm='elrwa',
 		loginmsg='User ANONYMOUS okay, use email as password.',
+		max_down=0,
+		max_up=0,
 	))
 	conf.set_ports(8030,8040)
 	coro=loop.create_server(ftpd.FTPHandler,conf.host,conf.port)

@@ -11,7 +11,6 @@ from . import ftpconf
 class Transporter:
 	reader=None
 	writer=None
-	bufsize=0x1000
 	def __init__(self, conf, user):
 		self.conf=conf
 		self.user=user
@@ -26,23 +25,37 @@ class Transporter:
 			self.writer.close()
 	@asyncio.coroutine
 	def push(self, data):
-		# TODO: limit speed
 		if isinstance(data, bytes):
 			self.writer.write(data)
 			yield from self.writer.drain()
 			self.bytes_sent+=len(data)
 		else:
+			delta=(self.conf.buf_out/self.user.max_down
+					if self.user.max_down else 0)
+			loop=asyncio.get_event_loop()
 			for chunk in data:
+				t=loop.time()
 				self.writer.write(chunk)
 				yield from self.writer.drain()
 				self.bytes_sent+=len(chunk)
+				dt=delta-loop.time()+t
+				if dt>0: yield from asyncio.sleep(dt)
 	@asyncio.coroutine
-	def pull(self):
-		# TODO: limit speed
-		chunk=yield from asyncio.wait_for(
-				self.reader.read(self.bufsize),self.conf.data_timeout)
-		self.bytes_received+=len(chunk)
-		return chunk
+	def pull(self, fileobj, enc=None):
+		delta=(self.conf.buf_in/self.user.max_up
+				if self.user.max_up else 0)
+		loop=asyncio.get_event_loop()
+		while True:
+			t=loop.time()
+			chunk=yield from asyncio.wait_for(
+				self.reader.read(self.conf.buf_in),self.conf.data_timeout)
+			if not chunk: break
+			if enc:
+				chunk=chunk.decode(enc,'replace')
+			fileobj.write(chunk)
+			self.bytes_received+=len(chunk)
+			dt=delta-loop.time()+t
+			if dt>0: yield from asyncio.sleep(dt)
 
 class PSVTransporter(Transporter):
 	def __init__(self, conf, user):
@@ -298,13 +311,8 @@ class FTPHandler(asyncio.Protocol):
 		yield from self.handle_transporter(self.handle_push_data, data)
 	@asyncio.coroutine
 	def handle_pull_data(self, fileobj):
-		while True:
-			chunk=yield from self.transporter.pull()
-			if not chunk: break
-			if self.type=='a':
-				# FIXME: broken between chunks
-				chunk=chunk.decode(self.encoding,'replace')
-			fileobj.write(chunk)
+		yield from self.transporter.pull(fileobj,
+				self.encoding if self.type=='a' else None)
 		fileobj.close()
 	@asyncio.coroutine
 	def pull_data(self, fileobj):
@@ -458,7 +466,7 @@ class FTPHandler(asyncio.Protocol):
 		path,realpath,perm=self.real_path(args)
 		if os.path.isfile(realpath):
 			yield from self.push_data(
-					ftpconf.FileProducer(realpath,self.type,self.ret))
+					ftpconf.FileProducer(realpath,self.type,self.conf.buf_out,self.ret))
 		else:
 			self.send_status(550)
 	@asyncio.coroutine
