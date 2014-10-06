@@ -24,14 +24,17 @@ class Transporter:
 		'''
 		if self.writer:
 			self.writer.close()
+	@asyncio.coroutine
 	def push(self, data):
 		# TODO: limit speed
 		if isinstance(data, bytes):
 			self.writer.write(data)
+			yield from self.writer.drain()
 			self.bytes_sent+=len(data)
 		else:
 			for chunk in data:
 				self.writer.write(chunk)
+				yield from self.writer.drain()
 				self.bytes_sent+=len(chunk)
 	@asyncio.coroutine
 	def pull(self):
@@ -285,7 +288,7 @@ class FTPHandler(asyncio.Protocol):
 		#if self.type=='a':
 		if isinstance(data, str):	# in case sent by LIST
 			data=data.encode(self.encoding,'replace')
-		self.transporter.push(data)
+		yield from self.transporter.push(data)
 		self.transporter.close()
 	@asyncio.coroutine
 	def push_data(self, data):
