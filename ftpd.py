@@ -46,7 +46,7 @@ class PSVTransporter(Transporter):
 		super().__init__(conf, user)
 		self.closed=True
 	def connect(self, host):
-		self.port=yield from asyncio.wait_for(conf.ports.get(), 1)
+		self.port=yield from asyncio.wait_for(self.conf.ports.get(), 1)
 		self.con=yield from asyncio.start_server(self.onconnect,
 				host=host, port=self.port, backlog=1)
 		self.closed=False
