@@ -10,4 +10,4 @@ Features
 
 Requirements
 ---
-* Python 3.4+ (asyncio module is required)
+* Python 3.4+ (`asyncio` module is required)
