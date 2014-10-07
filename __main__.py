@@ -20,8 +20,4 @@ if __name__=='__main__':
 	coro=loop.create_server(ftpd.FTPHandler,conf.host,conf.port)
 	server=loop.run_until_complete(coro)
 	logging.info('Serving on %s, port %d',*server.sockets[0].getsockname()[:2])
-	try:
-		loop.run_forever()
-	finally:
-		server.close()
-		loop.close()
+	loop.run_forever()
