@@ -6,7 +6,7 @@
 # RFC 959, 2389
 import asyncio,logging,traceback,time,os,socket,sys
 from tarfile import filemode
-from . import ftpconf
+from . import ftpdconf
 
 class Transporter:
 	reader=None
@@ -335,7 +335,7 @@ class FTPHandler(asyncio.Protocol):
 			return
 		if self.username in self.conf.users:
 			o=self.conf.users[self.username]
-			if o.pwd is None or o.pwd==args:
+			if not o.pwd or o.pwd==args:
 				self.user=o
 				self.perm=o.perm
 				self.send_status(230)
@@ -466,7 +466,7 @@ class FTPHandler(asyncio.Protocol):
 		path,realpath,perm=self.real_path(args)
 		if os.path.isfile(realpath):
 			yield from self.push_data(
-					ftpconf.FileProducer(realpath,self.type,self.conf.buf_out,self.ret))
+					ftpdconf.FileProducer(realpath,self.type,self.conf.buf_out,self.ret))
 		else:
 			self.send_status(550)
 	@asyncio.coroutine
