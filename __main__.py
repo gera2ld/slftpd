@@ -8,7 +8,6 @@ if __name__=='__main__':
 	logging.info('FTP Server v2/%s %s - by Gerald'
 			% (platform.python_implementation(),platform.python_version()))
 	loop=asyncio.get_event_loop()
-	# TODO: add config file
 	conf=ftpd.FTPHandler.conf=ftpdconf.FTPConfig()
 	coro=loop.create_server(ftpd.FTPHandler,conf.host,conf.port)
 	server=loop.run_until_complete(coro)
