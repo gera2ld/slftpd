@@ -36,7 +36,6 @@ class FTPConfig:
 	buf_in=buf_out=0x1000
 	def __init__(self, filename='ftpd.conf'):
 		self.connections={None:0}
-		self.lock=asyncio.Lock()
 		self.features=['UTF8']
 		conf=[os.path.join(os.path.dirname(__file__),filename),os.path.expanduser('~/.gerald/'+filename)]
 		cp=configparser.ConfigParser(default_section='server')
@@ -64,7 +63,6 @@ class FTPConfig:
 				'max_down':cp.getint(name,'max_down',fallback=0),
 				'max_up':cp.getint(name,'max_up',fallback=0),
 			}
-			print(kw)
 			self.users[name]=FTPUser(**kw)
 
 class FileProducer:

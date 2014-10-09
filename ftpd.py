@@ -4,9 +4,10 @@
 # Author: Gerald <gera2ld@163.com>
 # Require: Python 3.4+
 # RFC 959, 2389
-import asyncio,logging,traceback,time,os,socket,sys
+import asyncio,logging,traceback,time,os,socket,platform
 from tarfile import filemode
 from . import ftpdconf
+SERVER_NAME='FTPD/Gerald'
 
 class Transporter:
 	reader=None
@@ -222,19 +223,17 @@ class FTPHandler(asyncio.Protocol):
 			logging.error('Failed closing transport!')
 			raise e
 		self.log_message('Connection closed.','=')
-		with (yield from self.conf.lock):
-			self.conf.connections[None]-=1
-			self.conf.connections[self.remote_addr[0]]-=1
+		self.conf.connections[None]-=1
+		self.conf.connections[self.remote_addr[0]]-=1
 	@asyncio.coroutine
 	def handle(self):
 		'''
 		A coroutin to handle slow procedures.
 		'''
-		with (yield from self.conf.lock):
-			ip=self.remote_addr[0]
-			n=self.conf.connections.get(ip,0)
-			self.conf.connections[ip]=self.connection_id=n+1
-			self.conf.connections[None]+=1
+		ip=self.remote_addr[0]
+		n=self.conf.connections.get(ip,0)
+		self.conf.connections[ip]=self.connection_id=n+1
+		self.conf.connections[None]+=1
 		if (self.conf.max_connection and
 				self.conf.connections[None]>self.conf.max_connection):
 			self.send_status(421, '%d users (the maximum) logged in.' % self.conf.max_connection)
@@ -489,9 +488,7 @@ class FTPHandler(asyncio.Protocol):
 		else: self.send_status(501)
 	@asyncio.coroutine
 	def ftp_SYST(self, args):
-		if sys.platform.startswith('win'): name='WINDOWS-NT-6.1'
-		else: name='UNKNOWN'
-		self.send_status(215,'%s FTP/Gerald' % name)
+		self.send_status(215,platform.platform()+' '+SERVER_NAME)
 	@asyncio.coroutine
 	def ftp_NOOP(self, args):
 		self.send_status(200)
