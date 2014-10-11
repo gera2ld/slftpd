@@ -34,7 +34,7 @@ class FTPUser:
 
 class FTPConfig:
 	buf_in=buf_out=0x1000
-	def __init__(self, filename='ftpd.conf'):
+	def __init__(self, filename='ftpd.cfg'):
 		self.connections={None:0}
 		self.features=['UTF8']
 		conf=[os.path.join(os.path.dirname(__file__),filename),os.path.expanduser('~/.gerald/'+filename)]

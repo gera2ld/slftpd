@@ -15,7 +15,7 @@ Requirements
 
 Usage
 ---
-Config files are in the package directory (global settings) or `~/.gerald/ftpd.conf` (user settings).
+Config files are in the package directory (global settings) or `~/.gerald/ftpd.cfg` (user settings).
 
 	$ git clone https://git.oschina.net/gerald/slftpd.git
 	$ python3 -m slftpd
