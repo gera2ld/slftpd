@@ -125,6 +125,7 @@ class FTPHandler(asyncio.Protocol):
 		}
 	def connection_made(self, transport):
 		self.transport=transport
+		self.conf=transport._server.conf
 		self.encoding=self.conf.encoding
 		self.rbuf=[]
 		self.user=None
