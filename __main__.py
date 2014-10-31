@@ -9,7 +9,7 @@ if __name__=='__main__':
 			% (platform.python_implementation(),platform.python_version()))
 	loop=asyncio.get_event_loop()
 	conf=ftpdconf.FTPConfig()
-	coro=loop.create_server(ftpd.FTPHandler,conf.host,conf.port)
+	coro=asyncio.start_server(ftpd.FTPHandler,conf.host,conf.port)
 	server=loop.run_until_complete(coro)
 	server.conf=conf
 	logging.info('Serving on %s, port %d',*server.sockets[0].getsockname()[:2])

@@ -90,7 +90,7 @@ class PRTTransporter(Transporter):
 		self.writer=writer
 		self.connected.set_result(True)
 
-class FTPHandler(asyncio.Protocol):
+class FTPHandler:
 	conf=None
 	responses={
 		125: 'Data connection already open; transfer starting.',
@@ -123,11 +123,11 @@ class FTPHandler(asyncio.Protocol):
 		530: 'Not logged in.',
 		550: 'Requested action not taken.',
 		}
-	def connection_made(self, transport):
-		self.transport=transport
-		self.conf=transport._server.conf
+	def __init__(self, reader, writer):
+		self.reader=reader
+		self.writer=writer
+		self.conf=writer.transport._server.conf
 		self.encoding=self.conf.encoding
-		self.rbuf=[]
 		self.user=None
 		self.username=None
 		self.directory='/'
@@ -136,41 +136,15 @@ class FTPHandler(asyncio.Protocol):
 		self.stru='f'
 		self.ret=None
 		self.transporter=None
-		self.remote_addr=transport.get_extra_info('peername')
-		self.local_addr=transport.get_extra_info('sockname')
-		self.queue=asyncio.Queue()
-		self.closed=asyncio.Future()
+		self.remote_addr=writer.get_extra_info('peername')
+		self.local_addr=writer.get_extra_info('sockname')
 		asyncio.async(self.handle())
-	def data_received(self, data):
-		self.rbuf.append(data)
-		if data.find(b'\n')<0: return
-		line,_,buf=b''.join(self.rbuf).partition(b'\n')
-		self.rbuf=[]
-		if buf: self.rbuf.append(buf)
-		line=line.decode(self.encoding)
-		if line and line[-1]=='\r': line=line[:-1]
-		cmd,_,args=line.partition(' ')
-		cmd=cmd.upper()
-		self.queue.put_nowait((cmd,args))
-		#self.transport.pause_reading()
-	def connection_lost(self, exc):
-		self.closed.set_result(True)
-		self.queue.put_nowait((None,None))
 	def log_message(self, message, direction='>'):
 		user='null' if self.user is None else self.user.name
 		logging.info('%s@%s(%d) %s %s',user,self.remote_addr[0],self.connection_id,direction,message)
 	def push_status(self, data):
-		self.transport.write(data.encode(self.encoding))
+		self.writer.write(data.encode(self.encoding))
 		self.log_message(data.strip(),'<')
-	def send_status(self, code, message=None, data=None):
-		# data = first_line, data_lines
-		if message is None:
-			message=self.responses[code] if code in self.responses else ''
-		if data:
-			self.push_status('%d-%s\r\n' % (code,data[0]))
-			for i in data[1]:
-				self.push_status(' %s\r\n' % i)
-		self.push_status('%d %s\r\n' % (code,message))
 	def real_path(self, path=''):
 		path=os.path.join(self.directory, path)
 		path=os.path.normpath(path).replace('\\','/').lstrip('./')
@@ -205,6 +179,15 @@ class FTPHandler(asyncio.Protocol):
 		# TODO: add alias
 		d=''.join(list(dirs.values())+list(files.values()))
 		return d
+	def send_status(self, code, message=None, data=None):
+		# data = first_line, data_lines
+		if message is None:
+			message=self.responses[code] if code in self.responses else ''
+		if data:
+			self.push_status('%d-%s\r\n' % (code,data[0]))
+			for i in data[1]:
+				self.push_status(' %s\r\n' % i)
+		self.push_status('%d %s\r\n' % (code,message))
 	def denied(self, perm):
 		'''
 		Check permission.
@@ -217,12 +200,7 @@ class FTPHandler(asyncio.Protocol):
 
 	@asyncio.coroutine
 	def handle_close(self):
-		self.transport.close()
-		try:
-			yield from asyncio.wait_for(self.closed,1)
-		except asyncio.TimeoutError as e:
-			logging.error('Failed closing transport!')
-			raise e
+		self.writer.close()
 		self.log_message('Connection closed.','=')
 		self.conf.connections[None]-=1
 		self.conf.connections[self.remote_addr[0]]-=1
@@ -249,15 +227,16 @@ class FTPHandler(asyncio.Protocol):
 			self.send_status(220)
 		while True:
 			try:
-				cmd,args=yield from asyncio.wait_for(
-						self.queue.get(), self.conf.control_timeout)
+				line=yield from asyncio.wait_for(
+						self.reader.readline(), self.conf.control_timeout)
+				line=line.strip().decode()
+				cmd,_,args=line.partition(' ')
 			except asyncio.TimeoutError:
 				self.send_status(421, 'Control connection timed out.')
-				self.transport.close()
+				self.writer.close()
 				break
-			if cmd is None:	# connection closed
-				break
-			self.log_message(cmd+' '+args)
+			if not cmd: break
+			self.log_message(line)
 			if self.user is None and cmd not in ('USER','PASS','QUIT'):
 				self.send_status(530)
 			else:
@@ -344,7 +323,7 @@ class FTPHandler(asyncio.Protocol):
 	@asyncio.coroutine
 	def ftp_QUIT(self, args):
 		self.send_status(221)
-		self.transport.close()
+		self.writer.close()
 	@asyncio.coroutine
 	def ftp_PWD(self, args):
 		self.send_status(257, '"%s" is current directory.' % self.directory)
@@ -486,7 +465,8 @@ class FTPHandler(asyncio.Protocol):
 				self.send_status(501)
 				return
 			self.send_status(200, 'UTF-8 turned %s.' % cmd)
-		else: self.send_status(501)
+		else:
+			self.send_status(501)
 	@asyncio.coroutine
 	def ftp_SYST(self, args):
 		self.send_status(215,platform.platform()+' '+SERVER_NAME)
