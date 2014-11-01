@@ -17,7 +17,7 @@ class FTPUser:
 		self.alias=[]
 		self.add_alias('/',self.homedir)
 	def add_alias(self, src, dest, perm=None):
-		src=os.path.normpath(src)
+		src=os.path.normpath(src).replace('\\','/')
 		for i in self.alias:
 			if i[0]==src:
 				logging.warning('Alias for %s already exists.',src)
@@ -36,7 +36,6 @@ class FTPConfig:
 	buf_in=buf_out=0x1000
 	def __init__(self, filename='ftpd.cfg'):
 		self.connections={None:0}
-		self.features=['UTF8']
 		conf=[os.path.join(os.path.dirname(__file__),filename),os.path.expanduser('~/.gerald/'+filename)]
 		cp=configparser.ConfigParser(default_section='server')
 		cp.read(conf)

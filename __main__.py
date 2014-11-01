@@ -4,7 +4,7 @@ import logging,asyncio,platform
 from . import ftpd,ftpdconf
 
 if __name__=='__main__':
-	logging.basicConfig(level=logging.INFO,format='%(asctime)s %(levelname)s: %(message)s')
+	logging.basicConfig(level=logging.INFO)
 	logging.info('FTP Server v2/%s %s - by Gerald'
 			% (platform.python_implementation(),platform.python_version()))
 	loop=asyncio.get_event_loop()

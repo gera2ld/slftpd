@@ -26,21 +26,16 @@ class Transporter:
 			self.writer.close()
 	@asyncio.coroutine
 	def push(self, data):
-		if isinstance(data, bytes):
-			self.writer.write(data)
+		delta=(self.conf.buf_out/self.user.max_down
+				if self.user.max_down else 0)
+		loop=asyncio.get_event_loop()
+		for chunk in data:
+			t=loop.time()
+			self.writer.write(chunk)
 			yield from self.writer.drain()
-			self.bytes_sent+=len(data)
-		else:
-			delta=(self.conf.buf_out/self.user.max_down
-					if self.user.max_down else 0)
-			loop=asyncio.get_event_loop()
-			for chunk in data:
-				t=loop.time()
-				self.writer.write(chunk)
-				yield from self.writer.drain()
-				self.bytes_sent+=len(chunk)
-				dt=delta-loop.time()+t
-				if dt>0: yield from asyncio.sleep(dt)
+			self.bytes_sent+=len(chunk)
+			dt=delta-loop.time()+t
+			if dt>0: yield from asyncio.sleep(dt)
 	@asyncio.coroutine
 	def pull(self, fileobj, enc=None):
 		delta=(self.conf.buf_in/self.user.max_up
@@ -91,7 +86,6 @@ class PRTTransporter(Transporter):
 		self.connected.set_result(True)
 
 class FTPHandler:
-	conf=None
 	responses={
 		125: 'Data connection already open; transfer starting.',
 		150: 'File status okay; about to open data connection.',
@@ -123,6 +117,13 @@ class FTPHandler:
 		530: 'Not logged in.',
 		550: 'Requested action not taken.',
 		}
+	conf=None
+	features=[
+		'UTF8',
+		'MLST Type*;Size*;Modify*;Perm*;',
+	]
+	mlst_facts_available=['Type','Size','Modify','Perm']
+	mlst_facts_dict=dict(map(lambda x:(x.lower(),x),mlst_facts_available))
 	def __init__(self, reader, writer):
 		self.reader=reader
 		self.writer=writer
@@ -134,6 +135,7 @@ class FTPHandler:
 		self.mode='s'
 		self.type='i'
 		self.stru='f'
+		self.mlst_facts=list(self.mlst_facts_available)
 		self.ret=None
 		self.transporter=None
 		self.remote_addr=writer.get_extra_info('peername')
@@ -144,19 +146,26 @@ class FTPHandler:
 		logging.info('%s@%s(%d) %s %s',user,self.remote_addr[0],self.connection_id,direction,message)
 	def push_status(self, data):
 		self.writer.write(data.encode(self.encoding))
-		self.log_message(data.strip(),'<')
-	def real_path(self, path=''):
-		path=os.path.join(self.directory, path)
-		path=os.path.normpath(path).replace('\\','/').lstrip('./')
+		self.log_message(data.rstrip(),'<')
+	def real_path(self, path=None):
+		path=os.path.join(self.directory, path or '')
+		path=os.path.normpath(path).replace('\\','/')
+		while True:
+			if path.startswith('../'):
+				path=path[3:]
+			elif path.startswith('/'):
+				path=path[1:]
+			else:
+				break
 		realpath=os.path.join(self.user.homedir,path)
 		path='/'+path
 		perm=self.user.perm
 		for i,j,k in self.user.alias:
 			if path.startswith(i):
 				realpath=os.path.join(j,os.path.relpath(path,i))
-				perm=k
+				if k: perm=k
 		return path,realpath,perm
-	def format_time(self,t):
+	def time_string_for_list(self,t):
 		t=time.localtime(t)
 		now=time.localtime()
 		if t.tm_year==now.tm_year:
@@ -168,17 +177,14 @@ class FTPHandler:
 		files={}
 		for i in os.listdir(path):
 			f=os.path.join(path,i)
-			try:
-				st=list(os.stat(f))
-			except:
-				continue
-			s='%s 1 user group %d %s %s\n' % (filemode(st[0]),st[6],self.format_time(st[8]),i)
+			st=os.stat(f)
+			s='%s 1 user group %d %s %s\n' % (filemode(st.st_mode),st.st_size,self.time_string_for_list(st.st_mtime),i)
 			if os.path.isdir(f): dirs[i]=s
 			else: files[i]=s
 		wd=os.path.normpath(self.directory).replace('\\','/')
 		# TODO: add alias
 		d=''.join(list(dirs.values())+list(files.values()))
-		return d
+		return d.encode(self.encoding,'replace')
 	def send_status(self, code, message=None, data=None):
 		# data = first_line, data_lines
 		if message is None:
@@ -188,15 +194,49 @@ class FTPHandler:
 			for i in data[1]:
 				self.push_status(' %s\r\n' % i)
 		self.push_status('%d %s\r\n' % (code,message))
-	def denied(self, perm):
+	def denied(self, perm, perms):
 		'''
 		Check permission.
-		Note: self.perm is not always self.user.perm
 		'''
-		if self.perm.find(perm)<0:
+		if perms.find(perm)<0:
 			self.send_status(550, 'Permission denied.')
 			return True
 		return False
+	def get_info(self, pathinfo, itype=None):
+		info=[]
+		if isinstance(pathinfo,str):
+			path,realpath,perm=self.real_path(pathinfo)
+		else:
+			path,realpath,perm=pathinfo
+		if os.path.isfile(realpath):
+			if itype is None: itype='file'
+			else: assert itype=='file'
+			perms='rwadf'
+		elif os.path.isdir(realpath):
+			if itype is None: itype='dir'
+			else: assert itype in ('dir','cdir','pdir')
+			perms='eldfm'
+		else:
+			self.send_status(550, 'File or directory not found.')
+			return
+		st=os.stat(realpath)
+		for i in self.mlst_facts:
+			if i=='Type':
+				info.append('Type='+itype)
+			elif i=='Size':
+				if itype=='file':
+					info.append('Size=%d' % st.st_size)
+			elif i=='Perm':
+				p=[]
+				for i in perms:
+					if i in perm: p.append(i)
+				info.append('Perm='+''.join(p))
+			elif i=='Modify':
+				t=time.localtime(st.st_mtime)
+				info.append('Modify=%04d%02d%02d%02d%02d%02d'
+						% (t.tm_year,t.tm_mon,t.tm_mday,t.tm_hour,t.tm_min,t.tm_sec))
+		info.append(' '+path)
+		return itype,';'.join(info)
 
 	@asyncio.coroutine
 	def handle_close(self):
@@ -277,9 +317,10 @@ class FTPHandler:
 			self.transporter=None
 	@asyncio.coroutine
 	def handle_push_data(self, data):
-		#if self.type=='a':
-		if isinstance(data, str):	# in case sent by LIST
-			data=data.encode(self.encoding,'replace')
+		'''
+		data must be bytes or bytes generator
+		'''
+		if isinstance(data, bytes): data=[data]
 		yield from self.transporter.push(data)
 		self.transporter.close()
 	@asyncio.coroutine
@@ -316,7 +357,6 @@ class FTPHandler:
 			o=self.conf.users[self.username]
 			if not o.pwd or o.pwd==args:
 				self.user=o
-				self.perm=o.perm
 				self.send_status(230)
 				return
 		self.send_status(430)
@@ -329,7 +369,6 @@ class FTPHandler:
 		self.send_status(257, '"%s" is current directory.' % self.directory)
 	@asyncio.coroutine
 	def ftp_CWD(self, args):
-		if self.denied('e'): return
 		if not args:
 			path,realpath,perm=self.real_path(args)
 		else:
@@ -337,11 +376,11 @@ class FTPHandler:
 				self.send_status(550, '"/" has no parent directory.')
 				return
 			path,realpath,perm=self.real_path(args)
+		if self.denied('e',perm): return
 		if not os.path.isdir(realpath):
 			self.send_status(550, 'Directory not found.')
 		else:
 			self.directory=path
-			self.perm=perm
 			self.send_status(250, 'Directory changed to %s.' % self.directory)
 	@asyncio.coroutine
 	def ftp_CDUP(self, args):
@@ -410,13 +449,10 @@ class FTPHandler:
 			self.send_status(200)
 	@asyncio.coroutine
 	def ftp_LIST(self, args):
-		if self.denied('l'): return
 		if args[:3].strip()=='-a':
 			args=args[3:].strip()
-		if not args:
-			path,realpath,perm=self.real_path()
-		else:
-			path,realpath,perm=self.real_path(args)
+		path,realpath,perm=self.real_path(args)
+		if self.denied('l',perm): return
 		if os.path.isfile(realpath):
 			self.send_status(213)
 		elif os.path.isdir(realpath):
@@ -441,8 +477,8 @@ class FTPHandler:
 		return pos
 	@asyncio.coroutine
 	def ftp_RETR(self, args):
-		if self.denied('r'): return
 		path,realpath,perm=self.real_path(args)
+		if self.denied('r',perm): return
 		if os.path.isfile(realpath):
 			yield from self.push_data(
 					ftpdconf.FileProducer(realpath,self.type,self.conf.buf_out,self.ret))
@@ -450,9 +486,9 @@ class FTPHandler:
 			self.send_status(550)
 	@asyncio.coroutine
 	def ftp_FEAT(self, args):
-		if self.conf.features:
+		if self.features:
 			self.send_status(211,'END',
-					('Features supported:',self.conf.features))
+					('Features supported:',self.features))
 		else:
 			self.send_status(211)
 	@asyncio.coroutine
@@ -465,6 +501,15 @@ class FTPHandler:
 				self.send_status(501)
 				return
 			self.send_status(200, 'UTF-8 turned %s.' % cmd)
+		elif sp=='mlst':
+			self.mlst_facts=[]
+			data=['MLST OPTS ']
+			for i in filter(None,cmd.strip().split(';')):
+				k=self.mlst_facts_dict.get(i)
+				if k:
+					self.mlst_facts.append(k)
+					data.append(k+';')
+			self.send_status(200, ''.join(data))
 		else:
 			self.send_status(501)
 	@asyncio.coroutine
@@ -475,8 +520,8 @@ class FTPHandler:
 		self.send_status(200)
 	@asyncio.coroutine
 	def ftp_RNFR(self, args):
-		if self.denied('f'): return
 		path,realpath,perm=self.real_path(args)
+		if self.denied('f',perm): return
 		if not os.path.exists(realpath):
 			self.send_status(550, 'No such file or directory.')
 		elif path=='/':
@@ -486,11 +531,11 @@ class FTPHandler:
 			return realpath
 	@asyncio.coroutine
 	def ftp_RNTO(self, args):
-		if self.denied('f'): return
 		if self.ret is None:
 			self.send_status(503)
 		else:
 			path,realpath,perm=self.real_path(args)
+			if self.denied('f',perm): return
 			try:
 				os.rename(self.ret,realpath)
 				self.send_status(250, 'Renaming ok.')
@@ -498,8 +543,8 @@ class FTPHandler:
 				self.send_status(550)
 	@asyncio.coroutine
 	def ftp_MKD(self, args):
-		if self.denied('m'): return
 		path,realpath,perm=self.real_path(args)
+		if self.denied('m',perm): return
 		try:
 			os.mkdir(realpath)
 			self.send_status(257, '"%s" directory is created.' % args)
@@ -507,8 +552,8 @@ class FTPHandler:
 			self.send_status(550)
 	@asyncio.coroutine
 	def ftp_RMD(self, args):
-		if self.denied('d'): return
 		path,realpath,perm=self.real_path(args)
+		if self.denied('d',perm): return
 		if f=='/':
 			self.send_status(550, 'Can\'t remove root directory.')
 		else:
@@ -524,8 +569,8 @@ class FTPHandler:
 				self.send_status(550)
 	@asyncio.coroutine
 	def ftp_STOR(self, args):
-		if self.denied('w'): return
 		path,realpath,perm=self.real_path(args)
+		if self.denied('w',perm): return
 		mode='r+' if self.ret else 'w'
 		if self.type=='i': mode+='b'
 		fileobj=open(realpath, mode)
@@ -539,18 +584,49 @@ class FTPHandler:
 			yield from self.pull_data(fileobj)
 	@asyncio.coroutine
 	def ftp_APPE(self, args):
-		if self.denied('a'): return
 		path,realpath,perm=self.real_path(args)
+		if self.denied('a',perm): return
 		mode='a'
 		if self.type=='i': mode+='b'
 		fileobj=open(realpath, mode)
 		yield from self.pull_data(fileobj)
 	@asyncio.coroutine
 	def ftp_DELE(self, args):
-		if self.denied('d'): return
 		path,realpath,perm=self.real_path(args)
+		if self.denied('d',perm): return
 		try:
 			os.remove(realpath)
 			self.send_status(250, 'File removed.')
 		except:
 			self.send_status(550)
+	@asyncio.coroutine
+	def ftp_MLST(self, args):
+		path,realpath,perm=self.real_path(args)
+		if self.denied('l',perm): return
+		itype,info=self.get_info((path,realpath,perm))
+		data=[]
+		data.append('Listing %s: %s' % (itype,args))
+		data.append(info)
+		self.send_status(250,'End',data)
+	@asyncio.coroutine
+	def ftp_MLSD(self, args):
+		path,realpath,perm=self.real_path(args)
+		if self.denied('l',perm): return
+		if not os.path.isdir(realpath):
+			self.send_status(550, 'Directory not found.')
+			return
+		data=[]
+		# current dir
+		itype,info=self.get_info((path,realpath,perm),'cdir')
+		data.append(info)
+		# parent dir
+		p=os.path.dirname(path)
+		if p!=path:
+			itype,info=self.get_info(p,'pdir')
+			data.append(info)
+		for i in os.listdir(realpath):
+			r=os.path.join(realpath,i)
+			itype,info=self.get_info((i,r,perm))
+			data.append(info)
+		data='\n'.join(data).encode(self.encoding)
+		yield from self.push_data(data)
