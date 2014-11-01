@@ -52,6 +52,8 @@ class FTPConfig:
 		for i in range(ports_start,ports_end):
 			self.ports.put_nowait(i)
 		self.users={}
+		fb_max_down=cp.getint('server','max_down',fallback=0)
+		fb_max_up=cp.getint('server','max_up',fallback=0)
 		for name in cp.sections():
 			kw={
 				'name':name,
@@ -59,8 +61,8 @@ class FTPConfig:
 				'homedir':os.path.expanduser(cp.get(name,'homedir',fallback='~')),
 				'perm':cp.get(name,'permission',fallback='elr'),
 				'loginmsg':cp.get(name,'loginmsg',fallback=None),
-				'max_down':cp.getint(name,'max_down',fallback=0),
-				'max_up':cp.getint(name,'max_up',fallback=0),
+				'max_down':cp.getint(name,'max_down',fallback=fb_max_down),
+				'max_up':cp.getint(name,'max_up',fallback=fb_max_up),
 			}
 			self.users[name]=FTPUser(**kw)
 

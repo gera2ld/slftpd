@@ -31,7 +31,8 @@ class Transporter:
 		loop=asyncio.get_event_loop()
 		for chunk in data:
 			t=loop.time()
-			self.writer.write(chunk)
+			try: self.writer.write(chunk)
+			except: break
 			yield from self.writer.drain()
 			self.bytes_sent+=len(chunk)
 			dt=delta-loop.time()+t
@@ -309,8 +310,8 @@ class FTPHandler:
 			yield from callback(*args)
 		except asyncio.TimeoutError:
 			self.send_status(421, 'Data channel time out.')
-		except socket.error:
-			self.send_status(426, 'Socket error.')
+		except:
+			self.send_status(426, 'Error occurred.')
 		else:
 			self.send_status(226, 'Transfer completed.')
 		finally:
