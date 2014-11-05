@@ -178,7 +178,8 @@ class FTPHandler:
 		files={}
 		for i in os.listdir(path):
 			f=os.path.join(path,i)
-			st=os.stat(f)
+			try: st=os.stat(f)
+			except: continue
 			s='%s 1 user group %d %s %s\n' % (filemode(st.st_mode),st.st_size,self.time_string_for_list(st.st_mtime),i)
 			if os.path.isdir(f): dirs[i]=s
 			else: files[i]=s
