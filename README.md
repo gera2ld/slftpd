@@ -1,7 +1,7 @@
 Super Light FTP Server
 ===
 
-Author: [Gerald](http://geraldl.net) \<gera2ld@163.com\>
+Author: [Gerald](http://gerald.top) \<gera2ld@163.com\>
 
 Features
 ---
@@ -13,9 +13,17 @@ Requirements
 ---
 * Python 3.4+ (`asyncio` module is required)
 
+Installation
+---
+``` sh
+$ python3 setup.py install
+```
+or just copy `./slftpd`.
+
 Usage
 ---
 Config files are in the package directory (global settings) or `~/.gerald/ftpd.cfg` (user settings).
 
-	$ git clone https://git.oschina.net/gerald/slftpd.git
-	$ python3 -m slftpd
+``` sh
+$ python3 -m slftpd
+```
