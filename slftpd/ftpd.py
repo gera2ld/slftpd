@@ -6,14 +6,29 @@
 # RFC 959, 2389
 import asyncio,logging,traceback,time,os,socket,platform
 from tarfile import filemode
-from . import ftpdconf
+from .ftpdconf import config
 SERVER_NAME='FTPD/Gerald'
+
+class FileProducer:
+	def __init__(self, path, type, bufsize, offset=0):
+		mode='r'
+		if type=='i': mode+='b'
+		self.bufsize=bufsize
+		self.fp=open(path,mode)
+		if offset: self.fp.seek(offset)
+	def __iter__(self):
+		return self
+	def __next__(self):
+		data=self.fp.read(self.bufsize)
+		if data:
+			return data
+		else:
+			raise StopIteration
 
 class Transporter:
 	reader=None
 	writer=None
-	def __init__(self, conf, user):
-		self.conf=conf
+	def __init__(self, user):
 		self.user=user
 		self.bytes_sent=0
 		self.bytes_received=0
@@ -26,7 +41,7 @@ class Transporter:
 			self.writer.close()
 	@asyncio.coroutine
 	def push(self, data):
-		delta=(self.conf.buf_out/self.user.max_down
+		delta=(config.buf_out/self.user.max_down
 				if self.user.max_down else 0)
 		loop=asyncio.get_event_loop()
 		for chunk in data:
@@ -39,13 +54,13 @@ class Transporter:
 			if dt>0: yield from asyncio.sleep(dt)
 	@asyncio.coroutine
 	def pull(self, fileobj, enc=None):
-		delta=(self.conf.buf_in/self.user.max_up
+		delta=(config.buf_in/self.user.max_up
 				if self.user.max_up else 0)
 		loop=asyncio.get_event_loop()
 		while True:
 			t=loop.time()
 			chunk=yield from asyncio.wait_for(
-				self.reader.read(self.conf.buf_in),self.conf.data_timeout)
+				self.reader.read(config.buf_in),config.data_timeout)
 			if not chunk: break
 			if enc:
 				chunk=chunk.decode(enc,'replace')
@@ -55,11 +70,11 @@ class Transporter:
 			if dt>0: yield from asyncio.sleep(dt)
 
 class PSVTransporter(Transporter):
-	def __init__(self, conf, user):
-		super().__init__(conf, user)
+	def __init__(self, user):
+		super().__init__(user)
 		self.closed=True
 	def connect(self, host):
-		self.port=yield from asyncio.wait_for(self.conf.ports.get(), 1)
+		self.port=yield from asyncio.wait_for(config.ports.get(), 1)
 		self.con=yield from asyncio.start_server(self.onconnect,
 				host=host, port=self.port, backlog=1)
 		self.closed=False
@@ -74,11 +89,9 @@ class PSVTransporter(Transporter):
 			self.con.close()
 			self.closed=True
 			yield from self.con.wait_closed()
-			self.conf.ports.put_nowait(self.port)
+			config.ports.put_nowait(self.port)
 
 class PRTTransporter(Transporter):
-	def __init__(self, conf, user):
-		super().__init__(conf, user)
 	def connect(self, host, port):
 		self.con=asyncio.open_connection(host=host, port=port)
 		reader,writer=yield from asyncio.wait_for(self.con, 5)
@@ -118,7 +131,6 @@ class FTPHandler:
 		530: 'Not logged in.',
 		550: 'Requested action not taken.',
 		}
-	conf=None
 	features=[
 		'UTF8',
 		'MLST Type*;Size*;Modify*;Perm*;',
@@ -128,8 +140,7 @@ class FTPHandler:
 	def __init__(self, reader, writer):
 		self.reader=reader
 		self.writer=writer
-		self.conf=writer.transport._server.conf
-		self.encoding=self.conf.encoding
+		self.encoding=config.encoding
 		self.user=None
 		self.username=None
 		self.directory='/'
@@ -244,24 +255,24 @@ class FTPHandler:
 	def handle_close(self):
 		self.writer.close()
 		self.log_message('Connection closed.','=')
-		self.conf.connections[None]-=1
-		self.conf.connections[self.remote_addr[0]]-=1
+		config.connections[None]-=1
+		config.connections[self.remote_addr[0]]-=1
 	@asyncio.coroutine
 	def handle(self):
 		'''
 		A coroutin to handle slow procedures.
 		'''
 		ip=self.remote_addr[0]
-		n=self.conf.connections.get(ip,0)
-		self.conf.connections[ip]=self.connection_id=n+1
-		self.conf.connections[None]+=1
-		if (self.conf.max_connection and
-				self.conf.connections[None]>self.conf.max_connection):
-			self.send_status(421, '%d users (the maximum) logged in.' % self.conf.max_connection)
+		n=config.connections.get(ip,0)
+		config.connections[ip]=self.connection_id=n+1
+		config.connections[None]+=1
+		if (config.max_connection and
+				config.connections[None]>config.max_connection):
+			self.send_status(421, '%d users (the maximum) logged in.' % config.max_connection)
 			yield from self.handle_close()
 			return
-		elif (self.conf.max_user_connection and
-				self.connection_id>self.conf.max_user_connection):
+		elif (config.max_user_connection and
+				self.connection_id>config.max_user_connection):
 			self.send_status(530, 'Number of connections per IP is limited.')
 			yield from self.handle_close()
 			return
@@ -270,7 +281,7 @@ class FTPHandler:
 		while True:
 			try:
 				line=yield from asyncio.wait_for(
-						self.reader.readline(), self.conf.control_timeout)
+						self.reader.readline(), config.control_timeout)
 				line=line.strip().decode()
 				cmd,_,args=line.partition(' ')
 			except asyncio.TimeoutError:
@@ -345,8 +356,8 @@ class FTPHandler:
 	@asyncio.coroutine
 	def ftp_USER(self, args):
 		self.username=args.lower()
-		if self.username in self.conf.users:
-			o=self.conf.users[self.username]
+		if self.username in config.users:
+			o=config.users[self.username]
 			self.send_status(331,o.loginmsg)
 		else:
 			self.send_status(430)
@@ -355,8 +366,8 @@ class FTPHandler:
 		if self.username is None:
 			self.send_status(332)
 			return
-		if self.username in self.conf.users:
-			o=self.conf.users[self.username]
+		if self.username in config.users:
+			o=config.users[self.username]
 			if not o.pwd or o.pwd==args:
 				self.user=o
 				self.send_status(230)
@@ -423,8 +434,8 @@ class FTPHandler:
 		'''
 		self.transporter=None
 		try:
-			self.transporter=PSVTransporter(self.conf,self.user)
-			yield from self.transporter.connect(self.conf.host)
+			self.transporter=PSVTransporter(self.user)
+			yield from self.transporter.connect(config.host)
 		except asyncio.TimeoutError:
 			self.send_status(500)
 		else:
@@ -443,7 +454,7 @@ class FTPHandler:
 			args=args.split(',')
 			host='.'.join(args[:4])
 			port=int(args[4])*256+int(args[5])
-			self.transporter=PRTTransporter(self.conf,self.user)
+			self.transporter=PRTTransporter(self.user)
 			yield from self.transporter.connect(host,port)
 		except asyncio.TimeoutError:
 			self.send_status(421, 'Data channel time out.')
@@ -483,7 +494,7 @@ class FTPHandler:
 		if self.denied('r',perm): return
 		if os.path.isfile(realpath):
 			yield from self.push_data(
-					ftpdconf.FileProducer(realpath,self.type,self.conf.buf_out,self.ret))
+					FileProducer(realpath,self.type,config.buf_out,self.ret))
 		else:
 			self.send_status(550)
 	@asyncio.coroutine
@@ -498,7 +509,7 @@ class FTPHandler:
 		sp,_,cmd=args.lower().partition(' ')
 		if sp=='utf8':
 			if cmd=='on': self.encoding='utf-8'
-			elif cmd=='off': self.encoding=self.conf.encoding
+			elif cmd=='off': self.encoding=config.encoding
 			else:
 				self.send_status(501)
 				return

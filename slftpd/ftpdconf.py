@@ -66,18 +66,4 @@ class FTPConfig:
 			}
 			self.users[name]=FTPUser(**kw)
 
-class FileProducer:
-	def __init__(self, path, type, bufsize, offset=0):
-		mode='r'
-		if type=='i': mode+='b'
-		self.bufsize=bufsize
-		self.fp=open(path,mode)
-		if offset: self.fp.seek(offset)
-	def __iter__(self):
-		return self
-	def __next__(self):
-		data=self.fp.read(self.bufsize)
-		if data:
-			return data
-		else:
-			raise StopIteration
+config=FTPConfig()
