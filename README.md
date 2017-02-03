@@ -1,29 +1,26 @@
 Super Light FTP Server
 ===
 
-Author: [Gerald](http://gerald.top) \<gera2ld@163.com\>
+Author: [Gerald](https://gerald.top) <<i@gerald.top>>
 
 Features
 ---
 * Multi-user
 * Transport speed limit
-* Config files
+* Zero config
 
 Requirements
 ---
-* Python 3.4+ (`asyncio` module is required)
+* Python 3.5+ (`asyncio` module is required)
 
 Installation
 ---
 ``` sh
-$ python3 setup.py install
+$ pip3 install git+https://github.com/gera2ld/slftpd.git
 ```
-or just copy `./slftpd`.
 
 Usage
 ---
-Config files are in the package directory (global settings) or `~/.gerald/ftpd.cfg` (user settings).
-
 ``` sh
 $ python3 -m slftpd
 ```
