@@ -1,4 +1,5 @@
-import logging, os, asyncio, configparser
+import os, asyncio
+from .log import logger
 
 def _normpath(path):
     return os.path.normpath(path).replace('\\', '/')
@@ -59,7 +60,7 @@ class Config:
     buf_in = buf_out = 0x1000
     encoding = 'utf-8'
     host = '0.0.0.0'
-    port = 8021
+    port = 21
     max_connection = 200
     max_user_connection = 1
     control_timeout = 120
@@ -77,7 +78,7 @@ class Config:
 
     def set_ports(self, ports_start=8030, ports_end=8040):
         if self.ports is not None:
-            logging.warn('Ports already initialized!')
+            logger.warn('Ports already initialized!')
             return
         self.ports = asyncio.Queue()
         for i in range(ports_start, ports_end):
@@ -88,7 +89,7 @@ class Config:
         kw.setdefault('max_connection', self.max_user_connection)
         user = FTPUser(name, **kw)
         if name in self.users:
-            logging.warn('User [%s] already exists and is replaced by the new entry!', name)
+            logger.warn('User [%s] already exists and is replaced by the new entry!', name)
         self.users[name] = user
         return user
 

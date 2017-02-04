@@ -1,11 +1,11 @@
 '''
 FTP Server v2
-Author: Gerald <i@gerald.top>
-Requirements: Python 3.5+
 RFC 959, 2389
 '''
-import asyncio, logging, traceback, time, os, socket, stat
-SERVER_NAME = 'SLFTPD/2'
+import asyncio, traceback, time, os, socket, stat
+from . import __version__
+from .log import logger
+SERVER_NAME = 'SLFTPD/' + __version__
 
 def time_string(timestamp):
     time_obj = time.localtime(timestamp)
@@ -209,7 +209,7 @@ class FTPHandler:
 
     def log_message(self, message, direction='>'):
         username = 'null' if self.user is None else self.user.name
-        logging.info('%s@%s(%d) %s %s', username, self.remote_addr[0], self.connection_id, direction, message)
+        logger.info('%s@%s(%d) %s %s', username, self.remote_addr[0], self.connection_id, direction, message)
 
     def push_status(self, data):
         self.writer.write(data.encode(self.encoding))

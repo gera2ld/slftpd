@@ -21,6 +21,7 @@ $ pip3 install git+https://github.com/gera2ld/slftpd.git
 
 Usage
 ---
+Command line usage:
 ``` sh
-$ python3 -m slftpd
+$ python3 -m slftpd -p 8021 -H ~
 ```
