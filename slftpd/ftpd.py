@@ -4,7 +4,7 @@ Author: Gerald <i@gerald.top>
 Requirements: Python 3.5+
 RFC 959, 2389
 '''
-import asyncio, logging, traceback, time, os, socket, platform, stat
+import asyncio, logging, traceback, time, os, socket, stat
 SERVER_NAME = 'SLFTPD/2'
 
 def time_string(timestamp):
@@ -227,7 +227,7 @@ class FTPHandler:
         context['realpath'] = realpath
         return context
 
-    def list_dir(self, realpath):
+    def list_dir(self, realpath, options={}):
         '''List directory entries.
 
         Each line looks like this:
@@ -236,8 +236,12 @@ class FTPHandler:
         '''
         dirs = {}
         files = {}
+        opt_a = options.get('a')
         for name in os.listdir(realpath):
-            item = os.path.join(realpath,name)
+            # Hide entries starting with `.`
+            if not opt_a and name.startswith('.'):
+                continue
+            item = os.path.join(realpath, name)
             try:
                 st = os.stat(item)
             except:
@@ -253,13 +257,17 @@ class FTPHandler:
         return res.encode(self.encoding, 'replace')
 
     def send_status(self, code, message=None, data=None):
-        # data = first_line, data_lines
+        '''Send status code with a message.
+
+        Optional data should be composed of a tuple (first_line, data_lines)
+        '''
         if message is None:
             message = self.responses[code] if code in self.responses else ''
         if data:
-            self.push_status('%d-%s\r\n' % (code, data[0]))
-            for i in data[1]:
-                self.push_status(' %s\r\n' % i)
+            first_line, data_lines = data
+            self.push_status('%d-%s\r\n' % (code, first_line))
+            for line in data_lines:
+                self.push_status(' ' + line + '\r\n')
         self.push_status('%d %s\r\n' % (code, message))
 
     def denied(self, perm, context=None):
@@ -435,7 +443,7 @@ class FTPHandler:
         else:
             path = self.context['path']
             self.directory = path
-            self.send_status(250, 'Directory changed to %s.' % path)
+            self.send_status(250, 'Directory changed to "%s".' % path)
 
     def ftp_CDUP(self, args):
         self.ftp_CWD('..')
@@ -499,15 +507,20 @@ class FTPHandler:
             self.send_status(200)
 
     async def ftp_LIST(self, args):
-        if args[:3].strip() == '-a':
-            args = args[3:].strip()
+        options = {}
+        args = args.strip()
+        while args.startswith('-'):
+            param, _, args = args.partition(' ')
+            args = args.strip()
+            for opt in param[1:].lower():
+                options[opt] = True
         self.context = self.access(args)
         if self.denied('l'): return
         realpath = self.context['realpath']
         if os.path.isfile(realpath):
             self.send_status(213)
         elif os.path.isdir(realpath):
-            await self.push_data(self.list_dir(realpath))
+            await self.push_data(self.list_dir(realpath, options))
         else:
             self.send_status(550, 'Directory not found.')
 
@@ -517,7 +530,7 @@ class FTPHandler:
         if os.path.isfile(realpath):
             self.send_status(213, str(os.path.getsize(realpath)))
         else:
-            self.send_status(501)
+            self.send_status(550, 'File not found.')
 
     def ftp_REST(self, args):
         try:
@@ -562,7 +575,7 @@ class FTPHandler:
             self.send_status(501)
 
     def ftp_SYST(self, args):
-        self.send_status(215, 'UNIX ' + platform.system() + ' ' + SERVER_NAME)
+        self.send_status(215, 'UNIX emulated by ' + SERVER_NAME)
 
     def ftp_NOOP(self, args):
         self.send_status(200)
